@@ -1,6 +1,7 @@
 import sys
+import dipy
 import warnings
-from Scripts.TreeStructure import list_dipy_contents
+from TreeStructure import list_dipy_contents
 from PyQt5.QtWidgets import QApplication, QDialog, QVBoxLayout, QComboBox, QLabel
 
 warnings.filterwarnings('ignore') 
@@ -22,30 +23,38 @@ class DipyDialog(QDialog):
         self.combo_submodule = QComboBox()
         self.combo_submodule.setEnabled(False)
         
-        self.label_class = QLabel("Select Function:")
-        self.combo_class = QComboBox()
-        self.combo_class.setEnabled(False)
+        self.label_class = QLabel("Select Class or Function:")
+        self.combo_class_func = QComboBox()
+        self.combo_class_func.setEnabled(False)
+        
+        self.label_method = QLabel("Select Method (if applicable):")
+        self.combo_method = QComboBox()
+        self.combo_method.setEnabled(False)
         
         self.layout.addWidget(self.label_module)
         self.layout.addWidget(self.combo_module)
         self.layout.addWidget(self.label_submodule)
         self.layout.addWidget(self.combo_submodule)
         self.layout.addWidget(self.label_class)
-        self.layout.addWidget(self.combo_class)
+        self.layout.addWidget(self.combo_class_func)
+        self.layout.addWidget(self.label_method)
+        self.layout.addWidget(self.combo_method)
         
         self.setLayout(self.layout)
         
         self.combo_module.currentIndexChanged.connect(self.populate_submodules)
-        self.combo_submodule.currentIndexChanged.connect(self.populate_classes)
+        self.combo_submodule.currentIndexChanged.connect(self.populate_classes_and_functions)
+        self.combo_class_func.currentIndexChanged.connect(self.populate_methods)
     
     def populate_submodules(self):
-        """Populate submodules based on the selected subpackage."""
         selected_module = self.combo_module.currentText()
         submodules = dipy_structure[selected_module]
         
         self.combo_submodule.clear()
-        self.combo_class.clear()
-        self.combo_class.setEnabled(False)
+        self.combo_class_func.clear()
+        self.combo_method.clear()
+        self.combo_class_func.setEnabled(False)
+        self.combo_method.setEnabled(False)
         
         if submodules:
             self.combo_submodule.addItems(submodules.keys())
@@ -53,19 +62,39 @@ class DipyDialog(QDialog):
         else:
             self.combo_submodule.setEnabled(False)
     
-    def populate_classes(self):
-        """Populate functions based on the selected submodule."""
+    def populate_classes_and_functions(self):
         selected_module = self.combo_module.currentText()
         selected_submodule = self.combo_submodule.currentText()
         
-        functions = dipy_structure[selected_module].get(selected_submodule, [])
+        self.combo_class_func.clear()
+        self.combo_method.clear()
+        self.combo_method.setEnabled(False)
         
-        self.combo_class.clear()
-        if functions:
-            self.combo_class.addItems(functions)
-            self.combo_class.setEnabled(True)
+        contents = dipy_structure[selected_module].get(selected_submodule, {})
+        
+        functions = contents.get("functions", [])
+        classes = contents.get("classes", {}).keys()
+        
+        if functions or classes:
+            self.combo_class_func.addItems(list(functions) + list(classes))
+            self.combo_class_func.setEnabled(True)
         else:
-            self.combo_class.setEnabled(False)
+            self.combo_class_func.setEnabled(False)
+    
+    def populate_methods(self):
+        selected_module = self.combo_module.currentText()
+        selected_submodule = self.combo_submodule.currentText()
+        selected_item = self.combo_class_func.currentText()
+        
+        contents = dipy_structure[selected_module].get(selected_submodule, {})
+        self.combo_method.clear()
+        
+        if selected_item in contents.get("classes", {}):
+            methods = contents["classes"][selected_item]
+            self.combo_method.addItems(methods)
+            self.combo_method.setEnabled(True)
+        else:
+            self.combo_method.setEnabled(False)
 
 
 # if __name__ == "__main__":
