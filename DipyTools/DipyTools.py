@@ -144,13 +144,13 @@ class DipyToolsWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     @staticmethod
     def list_dipy_contents():
+        dipy_structure = {}
+
         dipy_subpackages = ["io", "reconst", "segment", "tracking"]
 
-        dipy_structure = {}
 
         for subpackage_name in dipy_subpackages:
             full_subpackage_name = f"dipy.{subpackage_name}"
-
             try:
                 subpackage_module = importlib.import_module(full_subpackage_name)
                 dipy_structure[subpackage_name] = {}
@@ -164,43 +164,53 @@ class DipyToolsWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     
                     try:
                         module = importlib.import_module(full_module_name)
-                        dipy_structure[subpackage_name][module_name] = []
+                        dipy_structure[subpackage_name][module_name] = {"functions": [], "classes": {}}
                     except ImportError:
                         continue
 
                     for name, obj in inspect.getmembers(module, inspect.isfunction):
-                        dipy_structure[subpackage_name][module_name].append(name)
+                        dipy_structure[subpackage_name][module_name]["functions"].append(name)
+
+                    for name, obj in inspect.getmembers(module, inspect.isclass):
+                        class_methods = [func_name for func_name, func_obj in inspect.getmembers(obj, inspect.isfunction)]
+                        dipy_structure[subpackage_name][module_name]["classes"][name] = class_methods
 
         return dipy_structure
 
+
     def setup(self) -> None:
-        """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
 
         self.dipy_structure = self.list_dipy_contents()
 
-        # GUI Components
         self.label_module = qt.QLabel("Select DIPY Subpackage:")
         self.combo_module = qt.QComboBox()
         self.combo_module.addItems(list(self.dipy_structure.keys()))
-        
+
         self.label_submodule = qt.QLabel("Select Submodule:")
         self.combo_submodule = qt.QComboBox()
         self.combo_submodule.setEnabled(False)
-        
-        self.label_class = qt.QLabel("Select Function:")
-        self.combo_class = qt.QComboBox()
-        self.combo_class.setEnabled(False)
+
+        self.label_class = qt.QLabel("Select Class or Function:")
+        self.combo_class_func = qt.QComboBox()
+        self.combo_class_func.setEnabled(False)
+
+        self.label_method = qt.QLabel("Select Method (if applicable):")
+        self.combo_method = qt.QComboBox()
+        self.combo_method.setEnabled(False)
 
         self.layout.addWidget(self.label_module)
         self.layout.addWidget(self.combo_module)
         self.layout.addWidget(self.label_submodule)
         self.layout.addWidget(self.combo_submodule)
         self.layout.addWidget(self.label_class)
-        self.layout.addWidget(self.combo_class)
+        self.layout.addWidget(self.combo_class_func)
+        self.layout.addWidget(self.label_method)
+        self.layout.addWidget(self.combo_method)
 
         self.combo_module.currentIndexChanged.connect(self.populate_submodules)
-        self.combo_submodule.currentIndexChanged.connect(self.populate_classes)
+        self.combo_submodule.currentIndexChanged.connect(self.populate_classes_and_functions)
+        self.combo_class_func.currentIndexChanged.connect(self.populate_methods)
 
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/DipyTools.ui"))
         self.layout.addWidget(uiWidget)
@@ -212,43 +222,65 @@ class DipyToolsWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
         self.ui.applyButton.connect("clicked(bool)", self.onApplyButton)
         self.initializeParameterNode()
-    
+
     def populate_submodules(self):
         """Populate submodules based on the selected subpackage."""
-        try:
+        selected_module = self.combo_module.currentText
+        submodules = self.dipy_structure.get(selected_module, {})
 
-            # print("combo_module type:", type(self.combo_module)) 
-            # print("currentText type:", type(self.combo_module.currentText)) 
+        self.combo_submodule.clear()
+        self.combo_class_func.clear()
+        self.combo_method.clear()
+        self.combo_class_func.setEnabled(False)
+        self.combo_method.setEnabled(False)
 
-            selected_module = self.combo_module.currentText
-            print(f"Selected module: {selected_module}")
-            
-            submodules = self.dipy_structure.get(selected_module, {})
-            self.combo_submodule.clear()
-            self.combo_class.clear()
-            self.combo_class.setEnabled(False)
-            
-            if submodules:
-                self.combo_submodule.addItems(list(submodules.keys()))
-                self.combo_submodule.setEnabled(True)
-            else:
-                self.combo_submodule.setEnabled(False)
-        
-        except Exception as e:
-            print(f"Error in populate_submodules: {e}")
+        if submodules:
+            self.combo_submodule.addItems(list(submodules.keys()))
+            self.combo_submodule.setEnabled(True)
+        else:
+            self.combo_submodule.setEnabled(False)
 
-    def populate_classes(self):
+    def populate_classes_and_functions(self):
         selected_module = self.combo_module.currentText
         selected_submodule = self.combo_submodule.currentText
-        functions = self.dipy_structure.get(selected_module, {}).get(selected_submodule, [])
-        
-        self.combo_class.clear()
-        if functions:
-            self.combo_class.addItems(functions)
-            self.combo_class.setEnabled(True)
-        else:
-            self.combo_class.setEnabled(False)
 
+        self.combo_class_func.clear()
+        self.combo_method.clear()
+        self.combo_method.setEnabled(False)
+
+        contents = self.dipy_structure.get(selected_module, {}).get(selected_submodule, {})
+
+        if isinstance(contents, dict):
+            functions = contents.get("functions", [])
+            classes = list(contents.get("classes", {}).keys())
+        else:
+            functions = contents
+            classes = []
+
+        if functions or classes:
+            self.combo_class_func.addItems(functions + classes)
+            self.combo_class_func.setEnabled(True)
+        else:
+            self.combo_class_func.setEnabled(False)
+
+    def populate_methods(self):
+        selected_module = self.combo_module.currentText
+        selected_submodule = self.combo_submodule.currentText
+        selected_item = self.combo_class_func.currentText
+
+        contents = self.dipy_structure.get(selected_module, {}).get(selected_submodule, {})
+
+        self.combo_method.clear()
+
+        if isinstance(contents, dict):
+            if selected_item in contents.get("classes", {}):
+                methods = contents["classes"][selected_item]
+                self.combo_method.addItems(methods)
+                self.combo_method.setEnabled(True)
+            else:
+                self.combo_method.setEnabled(False)
+        else:
+            self.combo_method.setEnabled(False)
 
     def cleanup(self) -> None:
         """Called when the application closes and the module widget is destroyed."""
@@ -313,25 +345,40 @@ class DipyToolsWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         
     def onApplyButton(self) -> None:
         """Run processing when user clicks "Apply" button."""
+        
         # Get selected module, submodule, and function
+        
         selected_module = self.combo_module.currentText
         selected_submodule = self.combo_submodule.currentText
-        selected_function = self.combo_class.currentText
-
+        selected_class_func = self.combo_class_func.currentText
+        selected_method = self.combo_method.currentText if self.combo_method.isEnabled() else None
+        
         module = importlib.import_module(f"dipy.{selected_module}.{selected_submodule}")
-        func = getattr(module, selected_function)
+        func = getattr(module, selected_class_func)
 
-        # params = inspect.signature(func).parameters
+        if inspect.isclass(func):
+            if selected_method:
+                if hasattr(func, selected_method):
+                    method = getattr(func, selected_method)
+                    params = NumpyDocString(method.__doc__)
+                else:
+                    print("Error: Selected method not found in the class.")
+                    return
+            else:
+                print("Error: No method selected for the class.")
+                return
 
-        params = NumpyDocString(func.__doc__)
+        else:
+            params = NumpyDocString(func.__doc__)
 
+        print(f"The function/class here is {func}")
+        
         for parameter in params["Parameters"]:
             print(f"{parameter.name} : {parameter.type}")
-        
+                
         # print(doc["Parameters"])
 
         with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
-            # Compute output
             self.logic.process(func)
 
 

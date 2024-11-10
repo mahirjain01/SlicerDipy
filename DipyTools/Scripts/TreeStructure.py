@@ -12,7 +12,6 @@ def list_dipy_contents():
 
     for subpackage_name in dipy_subpackages:
         full_subpackage_name = f"dipy.{subpackage_name}"
-
         try:
             subpackage_module = importlib.import_module(full_subpackage_name)
             dipy_structure[subpackage_name] = {}
@@ -39,7 +38,9 @@ def list_dipy_contents():
 
     return dipy_structure
 
+
 # dipy_structure = list_dipy_contents()
+
 
 # for subpackage, modules in dipy_structure.items():
 #     print(f"\nSubpackage: {subpackage}")
